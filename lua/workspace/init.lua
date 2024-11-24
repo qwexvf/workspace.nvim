@@ -15,8 +15,22 @@ local action_set = require('telescope.actions.set')
 local action_state = require('telescope.actions.state')
 local tmux = require('workspace.tmux')
 
+local function validate_search_git_subfolders(workspace)
+  local opts = workspace.search_git_subfolders
+  if opts and not opts.enable == 0 then
+    return false
+  end
+
+  return true
+end
+
 local function validate_workspace(workspace)
-  if not workspace.name or not workspace.path or not workspace.keymap then
+  if
+    not workspace.name
+    or not workspace.path
+    or not workspace.keymap
+    or not validate_search_git_subfolders(workspace)
+  then
     return false
   end
   return true
@@ -39,20 +53,27 @@ end
 local default_options = {
   -- add option to loo for sub folders with .git
   workspaces = {
-    --{ name = "Projects", path = "~/Projects", keymap = { "<leader>o" }, opts = { search_git_subfolders = true } },
+    --{ name = "Projects", path = "~/Projects", keymap = { "<leader>o" }, opts = { search_git_subfolders = { enabled = true, depth = 2} } },
   },
   tmux_session_name_generator = function(project_name, workspace_name)
     local session_name = string.upper(project_name)
     return session_name
   end,
 }
+-- fixes the full path to ~/ if it matches to $HOME
+local function expand_tilde(path)
+  local home_dir = vim.fn.expand('$HOME')
+  if string.match(path, '^' .. home_dir) then
+    return string.gsub(path, '^' .. home_dir, '~')
+  end
+  return path
+end
 
--- finds any directory that contains a .git directory parent path
-local function find_git_directories(path, depth)
+local function find_git_directories(path, depth, max_depth)
   local result = {}
 
   -- Check if we've reached our depth limit
-  if depth > 2 then
+  if depth >= max_depth then
     return result
   end
 
@@ -60,20 +81,25 @@ local function find_git_directories(path, depth)
   for _, item in ipairs(vim.fn.readdir(path)) do
     local full_path = vim.fn.expand(path .. '/' .. item)
 
-    -- Skip any files that are not directories
-    if
-      item == '.'
-      or item == '..'
-      or vim.fn.isdirectory(full_path) == 0
-      or vim.fn.isdirectory(full_path .. '/.git') == 0
-    then
+    -- Skip if item is not a directory
+    if vim.fn.isdirectory(full_path) == 0 then
       goto continue
     end
 
-    table.insert(result, { path = full_path })
+    -- Check if .git exists in the current directory
+    if vim.fn.glob(full_path .. '/.git') ~= '' then
+      table.insert(result, full_path)
+      goto continue
+    end
+
+    if item == '.' or item == '..' or item == '.git' then
+      goto continue
+    end
 
     -- Recursively search subdirectories
-    local sub_results = find_git_directories(full_path, depth + 1)
+    local sub_results = find_git_directories(full_path, depth + 1, max_depth)
+
+    -- Add subdirectory results
     for _, sub_result in ipairs(sub_results) do
       table.insert(result, sub_result)
     end
@@ -81,7 +107,14 @@ local function find_git_directories(path, depth)
     ::continue::
   end
 
-  return result
+  local unique_result = {}
+  for _, _path in ipairs(result) do
+    if not unique_result[_path] then
+      table.insert(unique_result, _path)
+    end
+  end
+
+  return unique_result
 end
 
 local function open_workspace_popup(workspace, options)
@@ -92,13 +125,16 @@ local function open_workspace_popup(workspace, options)
 
   local workspace_path = vim.fn.expand(workspace.path) -- Expand the ~ symbol
   local projects = vim.fn.globpath(workspace_path, '*', 1, 1)
-  -- check workspace has opts
-  if workspace.opts and workspace.opts.search_git_subfolders then
+
+  local opts = workspace.opts or {}
+  -- if search_git_subfolders is enabled
+  if opts and opts.search_git_subfolders.enable then
+    local max_depth = opts.search_git_subfolders.max_depth or 2
     for _, folder in ipairs(projects) do
-      local child_folders = find_git_directories(folder, 2)
+      local child_folders = find_git_directories(folder, 0, max_depth)
       for _, child_folder in ipairs(child_folders) do
-        if vim.fn.isdirectory(child_folder.path) then
-          table.insert(projects, child_folder.path)
+        if vim.fn.isdirectory(child_folder) then
+          table.insert(projects, child_folder)
         end
       end
     end
@@ -112,11 +148,10 @@ local function open_workspace_popup(workspace, options)
     ordinal = 'Create new project',
   })
 
-  -- use find_git_directories to find all git repositories in the workspace
   for _, folder in ipairs(projects) do
     table.insert(entries, {
       value = folder,
-      display = folder,
+      display = expand_tilde(folder),
       ordinal = folder,
     })
   end
@@ -232,7 +267,7 @@ function M.setup(user_options)
       workspaces = {
         { name = "Workspace1", path = "~/path/to/workspace1", keymap = { "<leader>w" } },
         { name = "Workspace2", path = "~/path/to/workspace2", keymap = { "<leader>x" } },
-        { name = "Workspace2", path = "~/path/to/workspace2", keymap = { "<leader>x" }, opts = { search_git_subfolders = true } },
+        { name = "Workspace2", path = "~/path/to/workspace2", keymap = { "<leader>x" }, opts = { search_git_subfolders { enable = true, max_depth = 2} } },
       }
     }]])
     return
