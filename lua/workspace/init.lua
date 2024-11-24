@@ -92,7 +92,8 @@ local function open_workspace_popup(workspace, options)
 
   local workspace_path = vim.fn.expand(workspace.path) -- Expand the ~ symbol
   local projects = vim.fn.globpath(workspace_path, '*', 1, 1)
-  if workspace.opts.search_git_subfolders then
+  -- check workspace has opts
+  if workspace.opts and workspace.opts.search_git_subfolders then
     for _, folder in ipairs(projects) do
       local child_folders = find_git_directories(folder, 2)
       for _, child_folder in ipairs(child_folders) do
@@ -102,12 +103,6 @@ local function open_workspace_popup(workspace, options)
       end
     end
   end
-
-  table.sort(projects, function(a, b)
-    return a < b
-  end)
-
-  -- look for child folders that contains .git directory
 
   local entries = {}
 
@@ -237,6 +232,7 @@ function M.setup(user_options)
       workspaces = {
         { name = "Workspace1", path = "~/path/to/workspace1", keymap = { "<leader>w" } },
         { name = "Workspace2", path = "~/path/to/workspace2", keymap = { "<leader>x" } },
+        { name = "Workspace2", path = "~/path/to/workspace2", keymap = { "<leader>x" }, opts = { search_git_subfolders = true } },
       }
     }]])
     return
