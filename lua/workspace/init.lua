@@ -131,7 +131,7 @@ local function open_workspace_popup(workspace, options)
   if opts and opts.search_git_subfolders.enable then
     local max_depth = opts.search_git_subfolders.max_depth or 2
     for _, folder in ipairs(projects) do
-      local child_folders = find_git_directories(folder, 0, max_depth)
+      local child_folders = find_git_directories(folder, 1, max_depth)
       for _, child_folder in ipairs(child_folders) do
         if vim.fn.isdirectory(child_folder) then
           table.insert(projects, child_folder)
